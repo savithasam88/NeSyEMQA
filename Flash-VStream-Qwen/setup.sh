@@ -15,7 +15,7 @@ pip install peft deepspeed  # for training
 # 2. install flash-attn
 # You can install flash-attn online
 
-pip install -U flash-attn --no-build-isolation
+pip install -U flash-attn --no-build-isolation #did not work
 
 # Or you can install flash-attn offline, like following (check your environment, cu12 means cuda12, torch2.6 means pytorch2.6, and cxx11 means c++11, abiFLASE is important, cp310 means python3.10)
 
