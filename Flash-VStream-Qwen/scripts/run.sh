@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -D /users/sbsh670/Flash-VStream/Flash-VStream-Qwen/scripts    # Working directory
+#SBATCH -D /users/sbsh670/Flash-VStream/Flash-VStream-Qwen/scripts   # Working directory
 #SBATCH --job-name flash-vstream-job                      # Job name
 #SBATCH --partition=gengpu                         # Select the correct partition.
 #SBATCH --nodes=1                                  # Run on 1 nodes (each node has 48 cores)
@@ -39,4 +39,4 @@ unset __conda_setup
 conda init bash
 conda activate vstream
 #Run your script.
-python testing_requirements.py
+bash eval.sh

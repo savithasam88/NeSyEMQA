@@ -1,4 +1,10 @@
 # Based on https://github.com/haotian-liu/LLaVA.
+import torch
+torch._dynamo.reset()
+torch.cuda.empty_cache()
+
+print("CUDA available:", torch.cuda.is_available())
+print("CUDA device count:", torch.cuda.device_count())
 
 import os
 import json
@@ -128,13 +134,14 @@ def run_inference(args):
     Args:
         args: Command-line arguments.
     """
-    use_flash_attn = True
-    qwen_path = 'ckpt/Qwen2-VL-7B-Instruct'
-    if args.lora_path:
+    use_flash_attn = True #False #True #how attention is computed inside transformer  - faster, lower memory, GPU-optimised
+    qwen_path = '/users/sbsh670/archive/ckpt'#'ckpt/Qwen2-VL-7B-Instruct'
+    if args.lora_path: #none while eval
         model_config = FlashVStreamQwen2VLConfig.from_pretrained(
             qwen_path,
             trust_remote_code=True,
         )
+
         if args.flash_memory_dict is not None:
             model_config.vision_config.flash_memory_config = args.flash_memory_dict
             print(f'Override model config to {model_config}')
@@ -151,7 +158,7 @@ def run_inference(args):
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2" if use_flash_attn else "eager",
         ).eval()
-    else:
+    else: # while eval take this path
         # use full model
         model_path = args.model_path
         model_config = FlashVStreamQwen2VLConfig.from_pretrained(
@@ -164,6 +171,7 @@ def run_inference(args):
         if getattr(model_config.vision_config, 'flash_memory_config', None) is None:
             warnings.warn(f'Qwen2VLVisionConfig.flash_memory_config is not set. Set it to default, sample 10000')
             model_config.vision_config.flash_memory_config = DEFAULT_FLASH_MEMORY_CONFIG
+        print("Model config:", model_config) # works till here
         model = FlashVStreamQwen2VLModel.from_pretrained(
             model_path, 
             config=model_config,
@@ -218,7 +226,27 @@ def run_inference(args):
             for q_base in q_base_list:
                 QUESTION_PROMPT = "Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option."
                 # QUESTION_PROMPT += "And explain your reason for the choice as detailed."
+                
                 video_name = sample['video_id']
+                #I do not have mp4 files for this
+                if 'ssv2_video_mp4' in video_name: 
+                    continue
+                #I do not have the folder itself 
+                if 'nturgbd_convert' in video_name: 
+                    continue
+                #Remove time stamp for sta, star and tvqa 
+                if 'star/star' in video_name :
+                    n1 = video_name.split('.')[0].split('_')
+                    video_name = n1[0]+'_'+n1[1]+'_'+n1[2]
+                    
+                if 'tvqa/tvqa/' in video_name:
+                    n1 = video_name.split('.')[0].split('clip_')
+                    video_name = n1[0]+'clip_'+n1[1].split('_')[0]
+
+                if 'sta/sta' in video_name:
+                    n1 = video_name.split('.')[0].split['_']
+                    video_name = n1[0]+'_'+n1[1]
+                    
                 question = QUESTION_PROMPT + q_base
                 is_mcq_flag = True
                 if 'videommesub' in args.dataset:
@@ -241,11 +269,12 @@ def run_inference(args):
                 frame_paths = os.listdir(video_path)
                 frame_paths = sorted(frame_paths, key=lambda x: int(x.split("_")[-1].split(".")[0]))
                 frame_paths = [os.path.join(video_path, frame_path) for frame_path in frame_paths]
-                if args.reproduce:
+                if args.reproduce: # is false
+                    
                     frame_paths = frame_paths[::4]  # set to fps=2, only for egoschema
                     # frame_paths = frame_paths[::2]  # set to fps=2, for other
                     max_frames = None
-                else:
+                else: # reproduce is False
                     max_frames = args.max_frames
                     if args.fps is None:
                         total_time = len(frame_paths)
@@ -319,6 +348,7 @@ def run_inference(args):
                 )
                 if is_mcq_flag == True:
                     text += 'Best option: ('
+                # extracts video or image inputs from a conversation (messages), loads them in memory and returns tokens ready for input to VL model
                 image_inputs, video_inputs = process_vision_info(messages)
                 inputs = processor(
                     text=[text],
@@ -328,22 +358,29 @@ def run_inference(args):
                     return_tensors="pt",
                     flash_memory_config=flash_memory_config,
                 )
-                input_ids = inputs.input_ids.cuda()
-                attention_mask = inputs.attention_mask.cuda()
-                pixel_values_videos = inputs.pixel_values_videos.cuda()
-                video_grid_thw = inputs.video_grid_thw.cuda()
-                visual_position_ids = inputs.visual_position_ids.cuda()
+                input_ids = inputs.input_ids.cuda() # tokens for text input
+                attention_mask = inputs.attention_mask.cuda() # mask for text tokens
+                pixel_values_videos = inputs.pixel_values_videos.cuda() # flattened tokens for visual input - [Nframes, C, H, W]: where T is dimension of feature representating each pixel
+                video_grid_thw = inputs.video_grid_thw.cuda() # optional positional infor videos
+                visual_position_ids = inputs.visual_position_ids.cuda() # positional info for vision tokens
                 
-                with torch.inference_mode():
+                print("Shape:input_ids:", input_ids.shape) # (1, 4285) , 1 is batch size, 4285 seq len - seq of text, video
+                print("Shape:attn mask:", attention_mask.shape) #(1, 4285)
+                print("Shape: pixel_values_videos:", pixel_values_videos.shape)#Flattened (Nframesxno. of patch, 1176) - not embedding d
+                print("Shape: video_grid:", video_grid_thw.shape) #(1,3) -> 3 tells which frame, patch at which H, W - helps to reshape flattened patches back to frames
+                print("Shape: visual_position_ids:", visual_position_ids.shape) #(1, 4285) - shows which of the ids in input_ids is vision tokens and which is text
+
+
+                with torch.inference_mode():# internally goes to forward()
                     generated_ids = model.generate(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        pixel_values_videos=pixel_values_videos,
-                        video_grid_thw=video_grid_thw,
+                        input_ids=input_ids, #batch sizexseq_len
+                        attention_mask=attention_mask, #batch sizextoken_len
+                        pixel_values_videos=pixel_values_videos, #[batch size, Nframes, C, H, W]
+                        video_grid_thw=video_grid_thw, #[batch size, Nframes, h, w] -> frame sequence order - tells where each patch  from each frame comes from
                         max_new_tokens=128,
                         top_k=1,
                         do_sample=False,
-                        visual_position_ids=visual_position_ids,
+                        visual_position_ids=visual_position_ids,# sequential info - token 1, tokn 2..for look up
                     )
 
                 generated_ids_trimmed = [

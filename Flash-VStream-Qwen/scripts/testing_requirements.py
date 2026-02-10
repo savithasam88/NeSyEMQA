@@ -1,10 +1,11 @@
-''' vstream env: Download model flash-vstream-qwen
+# vstream env: Download model flash-vstream-qwen and Qwen2 -Vl-7B-Instruct
 from huggingface_hub import snapshot_download
-local_path = "/users/sbsh670/archive/models"
-repo_id = "zhang9302002/Flash-VStream-Qwen-7b"
+local_path = "/users/sbsh670/archive/ckpt/"
+repo_id = "Qwen/Qwen2-VL-7B-Instruct"
 snapshot_download(repo_id=repo_id, local_dir=local_path)
-'''
 
+
+'''
 #Unzip all video files
 import zipfile
 import tarfile
@@ -14,10 +15,15 @@ import os
 def tar_files_in_folder(root_folder):
     # Walk through all subfolders
     for dirpath, dirnames, filenames in os.walk(root_folder):
+        dirnames[:] = [d for d in dirnames if d!=".cache"]
         for file_name in filenames:
             if file_name.endswith(".tar.gz"):
                 tar_path = os.path.join(dirpath, file_name)
                 extract_path = os.path.join(dirpath, file_name[:-7])  # Remove '.tar.gz' for folder name
+                # 🔹 Skip if already extracted
+                if os.path.isdir(extract_path) and os.listdir(extract_path):
+                    print(f"Skipping {tar_path} (already extracted)")
+                    continue
 
                 os.makedirs(extract_path, exist_ok=True)
 
@@ -45,12 +51,12 @@ def unzip_files_in_folder(root_folder):
                 print(f"Extracted {zip_path} to {extract_path}")
 
 path_MVBench = "/users/sbsh670/archive/data/eval_video/MVBench/video"
-path_LLava_video = "/users/sbsh670/archive/data/train/LLaVA-Video-178K"
+path_LLava_video = "/users/sbsh670/archive/data/train/LLaVa-Videos-178K"
 
-unzip_files_in_folder(path_MVBench)
-#tar_files_in_folder(path_LLava_video)
+#unzip_files_in_folder(path_MVBench)
+tar_files_in_folder(path_LLava_video)
 
-
+'''
 
 ''' TEST Qwen
 from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor

@@ -189,7 +189,7 @@ def fetch_video(ele: dict, size_factor: int = FRAME_FACTOR) -> torch.Tensor | li
             antialias=True,
         ).float()
         return video
-    else:
+    else: # video is a list of images or frames
         assert isinstance(ele["video"], (list, tuple))
         process_info = ele.copy()
         process_info.pop("type", None)

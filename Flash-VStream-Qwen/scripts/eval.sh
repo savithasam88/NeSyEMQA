@@ -1,17 +1,17 @@
-conda activate vstream
-
 DATE="$(date +%m%d)"
-SAVE_PATH="ckpt/Flash-VStream-Qwen-7b"
+SAVE_PATH="/users/sbsh670/archive/models" #"ckpt/Flash-VStream-Qwen-7b"
+PYSCRIPT="/users/sbsh670/Flash-VStream/Flash-VStream-Qwen/eval_any_dataset.py"
 
-ngpus=8
+ngpus=1
 pixel_expr=4*224*224
 max_pixels=$((${pixel_expr}))
 max_frames=240
 
-for dataset in egoschema mlvu lvbench mvbench videommewo videomme
+
+for dataset in mvbench 
 do
     echo start eval ${dataset}
-    python3 eval_any_dataset.py \
+    python3 "${PYSCRIPT}" \
         --model-path ${SAVE_PATH} \
         --dataset ${dataset} \
         --output_dir ${SAVE_PATH} \

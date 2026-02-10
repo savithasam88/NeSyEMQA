@@ -51,7 +51,7 @@ def launch_multi_gpu_eval(args, dataset_name, frame_dir, data_file, evaluation_n
             output_dir = output_base + split
             processes = []
             for idx in range(0, num_chunks):
-                cmd = [ "python3", "inference_mcq_vqa.py",
+                cmd = [ "python3", "/users/sbsh670/Flash-VStream/Flash-VStream-Qwen/inference_mcq_vqa.py",
                         "--dataset", dataset_name,
                         "--model-path", model_path,
                         "--video_dir", frame_dir,
@@ -105,7 +105,7 @@ def get_dataset_info(args):
         {'type': 'mc', 'dataset_name': 'egoschema_all', 'frame_dir': 'data/eval_video/EgoSchema/frames', 'data_file': 'data/eval_video/EgoSchema/all_qa.json'},
         {'type': 'mc', 'dataset_name': 'videommesub', 'frame_dir': 'data/eval_video/videomme/frames', 'data_file': 'data/eval_video/videomme/test_qa.json'},
         {'type': 'mc', 'dataset_name': 'videommewo', 'frame_dir': 'data/eval_video/videomme/frames', 'data_file': 'data/eval_video/videomme/test_qa.json'},
-        {'type': 'mc', 'dataset_name': 'mvbench', 'frame_dir': 'data/eval_video/mvbench/frames', 'data_file': 'data/eval_video/mvbench/test_qa.json'},
+        {'type': 'mc', 'dataset_name': 'mvbench', 'frame_dir': '/users/sbsh670/archive/data/eval_video/MVBench/video_14400frames_fps1', 'data_file': '/users/sbsh670/Flash-VStream/Flash-VStream-Qwen/data/eval_video/mvbench/test_qa.json'},
         {'type': 'mc', 'dataset_name': 'lvbench', 'frame_dir': 'data/eval_video/lvbench/frames', 'data_file': 'data/eval_video/lvbench/test_qa.json'},
         {'type': 'mc', 'dataset_name': 'mlvu', 'frame_dir': 'data/eval_video/mlvu/frames', 'data_file': 'data/eval_video/mlvu/test_qa.json'},
         {'type': 'oe', 'dataset_name': 'rvs_ego', 'frame_dir': 'data/eval_video/vstream-realtime/ego4d_frames', 'data_file': 'data/eval_video/vstream-realtime/test_qa_ego4d.json'},

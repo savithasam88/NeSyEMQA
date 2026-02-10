@@ -47,7 +47,7 @@ def get_real_grid_thw(thw, flash_memory_config):
     t_pool = flash_memory_config['flash_memory_temporal_poolsize']
     t, h, w = thw
     t = min(t, t_len)  # temporal compress
-    if t_pool == 2:
+    if t_pool == 2: # I feel spatial compress takes place here
         h = h // 2
         w = w // 2
         if h % 2 != 0:
@@ -66,11 +66,12 @@ def get_real_grid_thws(grid_thw, flash_memory_config):
         real_grid_thw.append(real_thw)
     return torch.stack(real_grid_thw, dim=0)
 
+#Doubt: how is this spatial compress
 def get_spatial_real_grid_thw(thw, flash_memory_config):
     t, h, w = thw
     if flash_memory_config is None:
         t = 0
-    s_len = flash_memory_config['flash_memory_spatial_length'] // 2
+    s_len = flash_memory_config['flash_memory_spatial_length'] // 2 
     t = min(t, s_len)  # spatial compress
     real_thw = torch.tensor([t, h, w], dtype=thw.dtype, device=thw.device)
     return real_thw
@@ -112,7 +113,8 @@ class FlashMemory(nn.Module):
     """
     def temporal_pool(self, x, thw):
         # grid_thw is [T/2, H/14, W/14]
-        # x.shape is [grid_t x grid_h/2 x grid_w/2 x 2 x 2, 1280]
+        # x.shape is flattened - (14080x1176), thw=22, 20, 32 // wrong[grid_t x grid_h/2 x grid_w/2 x 2 x 2, 1280]
+        print('Temporal pool input::', x.shape, thw)
         t, h, w = thw
         xdim = x.shape[-1]
         assert self.temporal_poolsize == 2
@@ -122,8 +124,10 @@ class FlashMemory(nn.Module):
         x = x.reshape(t, h // 2, w // 2, 2, 2, 3, 2, 14, 14)  # [T // 2, h // 2, w // 2, 2(for h), 2(for w), 3, 2(for t), 14, 14]
         x = x.permute(0, 1, 2, 5, 6, 3, 7, 4, 8)  # [T // 2, h // 2, w // 2, 3, 2, 2, 14, 2, 14]
         x = x.reshape(-1, 6, 28, 28)  # 
-        x = F.avg_pool2d(x, kernel_size=2, stride=2)  # [-1, 6, 14, 14]
+        x = F.avg_pool2d(x, kernel_size=2, stride=2)  # i.e no avg across frames : [-1, 6, 14, 14]
         x = x.reshape(t, h // 2, w // 2, 3, 2, 14, 14) 
+        #h = 10, w=16
+        print('x shape after first pooling:', x.shape)
         pad_h = (h // 2) % 2
         pad_w = (w // 2) % 2
         # No need to repeat padding, we ensure it in the FlashVStreamQwen2VLImageProcessor
@@ -133,16 +137,22 @@ class FlashMemory(nn.Module):
             raise NotImplementedError(f"Performing temporal pool, pad_w > 0, pad_w={pad_w}")
         new_h = x.shape[1] // 2
         new_w = x.shape[2] // 2
+        #Again h = 5, w = 8
         x = x.reshape(t, new_h, 2, new_w, 2, 3, 2, 14, 14)
+        #1. torch.Size([22, 5, 2, 8, 2, 3, 2, 14, 14])
         x = x.permute(0, 1, 3, 2, 4, 5, 6, 7, 8)
+        #2. torch.Size([22, 5, 8, 2, 2, 3, 2, 14, 14])
         x = x.reshape(t, new_h, new_w, 2 * 2 * xdim).reshape(-1, xdim)
+        #3. torch.Size([3520, 1176])
         new_thw = thw.clone()
         new_thw[1] = new_h * 2
         new_thw[2] = new_w * 2
+        #x returned is ((22*10*16)3520, 1176) new_thw:22, 10, 16
         return x, new_thw
     
     """ Calc CSM memory, from temporal clustering """
     def temporal_compress(self, x, thw, temporal_length):
+        #input shape: (3520 , 1280 (emb dim)), thw = 22,10,16, temporal len = 60
         # grid_thw is [T/2, H/14, W/14]
         # x.shape is [grid_t x grid_h/2 x grid_w/2 x 2 x 2, 1280]
         t, h, w = thw
@@ -176,6 +186,7 @@ class FlashMemory(nn.Module):
             raise ValueError(f"temporal_method should be one of {method_dic.keys()}")
         tem_thw = thw.clone()
         tem_thw[0] = x.shape[0]
+        print('Output shape:', x.reshape(-1, x.shape[-1]).shape, x.shape, tem_thw, weights.shape)
         return x.reshape(-1, x.shape[-1]), tem_thw, weights, timestamps, indices
 
     """ Given tem_x (CSM memory), retrieve spa_x (DAM memory) from x (Feature Bank )"""
@@ -240,7 +251,7 @@ class FlashMemory(nn.Module):
                 raise ValueError(f"spatial_method should be one of {method_list}")
         spa_thw = thw.clone()
         spa_thw[0] = spa_x.shape[0]
-        # print(f'Perform spatial_enhance, method = {self.spatial_method}, x.shape={x.shape}, spa_x.shape={spa_x.shape}, tem_x.shape={tem_x.shape}')
+        #x.shape=torch.Size([22, 640, 1280]), spa_x.shape=torch.Size([22, 640, 1280]), tem_x.shape=torch.Size([22, 160, 1280])
         return spa_x, spa_thw, spa_positions
 
     def cat_spa_tem(self, spa_x, tem_x):
@@ -396,10 +407,11 @@ class FlashVStreamQwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         # small resolution pathway
         if self.flash_memory.temporal_poolsize > 1:
             small_hidden_states, small_grid_thw = [], []
-            bsz = grid_thw.shape[0]
+            bsz = grid_thw.shape[0] #batch size = 1
             st = 0
             for i in range(bsz):
                 ed = st + grid_thw[i].prod()
+               # 0 + (22*20*32) -> 0+ 14080
                 new_x, new_thw = self.flash_memory.temporal_pool(hidden_states[st:ed], grid_thw[i])
                 small_hidden_states.append(new_x)
                 small_grid_thw.append(new_thw)
@@ -424,7 +436,7 @@ class FlashVStreamQwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         for blk in self.blocks:
             hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
         hidden_states, position_ids = self.flash_memory(hidden_states, grid_thw, small_grid_thw, position_ids, visual_position_ids)
-        hidden_states = self.merger(hidden_states)
+        hidden_states = self.merger(hidden_states) #patch merging, 
         return hidden_states, position_ids
     
 
@@ -460,7 +472,7 @@ class FlashVStreamQwen2VLConfig(Qwen2VLConfig):
         )
         print(f'Set flash_memory_config to {self.vision_config.flash_memory_config}')
 
-
+#model that is used for eval!!
 class FlashVStreamQwen2VLModel(Qwen2VLForConditionalGeneration):
     config_class = FlashVStreamQwen2VLConfig
 
@@ -516,6 +528,7 @@ class FlashVStreamQwen2VLModel(Qwen2VLForConditionalGeneration):
 
         if inputs_embeds is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
+            print('Input embeds shape:', inputs_embeds.shape)
             # load from image
             if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.get_dtype())
@@ -528,6 +541,8 @@ class FlashVStreamQwen2VLModel(Qwen2VLForConditionalGeneration):
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
                 video_embeds, position_ids = self.visual(pixel_values_videos, grid_thw=video_grid_thw, position_ids=position_ids, visual_position_ids=visual_position_ids)
+                print('pixelvalue shape, video embeds shape:', pixel_values_videos.shape, video_embeds.shape)
+                
                 video_embeds = video_embeds.to(inputs_embeds.device)  # [N, dim]
                 video_mask = input_ids == self.config.video_token_id
                 if self.training:

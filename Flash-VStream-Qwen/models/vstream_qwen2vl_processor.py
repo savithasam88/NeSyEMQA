@@ -154,7 +154,11 @@ class FlashVStreamQwen2VLImageProcessor(Qwen2VLImageProcessor):
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
 
+        #if grid_t = 22, grid_h = 20, mergesize = 2, grid_w = 32, patch size = 14, temp patch size = 2
+        #flattened patch = grid_t*grid_h*grid_w (22*20*32 = 14080 ), 3*2*14*14 = 1176 - no. of pixelvalues for each patch in a temporal patch   c*temp patch 
+        #1176 pixel values for each 14x14 patch in a temporal patch is reoragnised or reshaped as done with merging
         return flatten_patches, (grid_t, grid_h, grid_w)
+
 
     def preprocess(
         self,
@@ -339,6 +343,7 @@ class FlashVStreamQwen2VLProcessor(Qwen2VLProcessor):
         if not isinstance(text, list):
             text = [text]
 
+        #Input text: ['<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|video_pad|><|vision_end|>Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.Question: How many objects are moving when the video ends?\nOptions:\n(A) 2\n(B) 3\n(C) 0\n(D) 1<|im_end|>\n<|im_start|>assistant\nBest option: (']
         if image_grid_thw is not None:
             merge_length = self.image_processor.merge_size**2
             index = 0
@@ -353,12 +358,16 @@ class FlashVStreamQwen2VLProcessor(Qwen2VLProcessor):
         if video_grid_thw is not None:
             merge_length = self.image_processor.merge_size**2
             index = 0
-            for i in range(len(text)):
+            for i in range(len(text)):#for batch of input_ids received
                 while "<|video_pad|>" in text[i]:
+                    # real_grid : eg (22, 10, 16) =  
                     real_grid = get_real_grid_thw(video_grid_thw[index], flash_memory_config)
+                    #spatial: eg 22, 20, 32
                     spatial_real_grid = get_spatial_real_grid_thw(video_grid_thw[index], flash_memory_config)
+                    #an embedding for each of the -> spatial20x32 patches -> after merging 10x 16 patches, 22 time frmes (grouped two frames to get 1 time patch)
+                    # an embedding for each real_grid pixel patches after merging -> 22 time groups, (10/2*16/2) patches
                     visual_embed_length = real_grid.prod() // 4 + spatial_real_grid.prod() // 4
-                    # print(f'In preprocess, spatial_real_grid={spatial_real_grid}, real_grid={real_grid}, visual_embed_length={visual_embed_length}')
+                    
                     text[i] = text[i].replace(
                         "<|video_pad|>", "<|placeholder|>" * visual_embed_length, 1
                     )
